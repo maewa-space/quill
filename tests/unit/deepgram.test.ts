@@ -105,20 +105,23 @@ describe('parseDeepgramMessage', () => {
 });
 
 describe('buildUrl', () => {
-  it('omits language and diarize for the bare auto-detect case', () => {
+  it('defaults to language=multi for the bare auto-detect case', () => {
+    // Nova-3 falls back to English when no language is sent; multi enables
+    // true code-switching auto-detection.
     const url = __buildUrlForTesting();
-    expect(url).not.toContain('language=');
+    expect(url).toContain('&language=multi');
     expect(url).not.toContain('diarize=');
   });
 
-  it('skips the language param when explicitly "auto"', () => {
-    const url = __buildUrlForTesting('auto');
-    expect(url).not.toContain('language=');
+  it('treats explicit "auto" the same as undefined (language=multi)', () => {
+    expect(__buildUrlForTesting('auto')).toContain('&language=multi');
   });
 
   it('appends &language=<code> for an explicit locale', () => {
     expect(__buildUrlForTesting('de')).toContain('&language=de');
     expect(__buildUrlForTesting('zh')).toContain('&language=zh');
+    // And does not also send multi.
+    expect(__buildUrlForTesting('de')).not.toContain('language=multi');
   });
 
   it('appends &diarize=true when diarization is on', () => {

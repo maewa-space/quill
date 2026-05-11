@@ -86,6 +86,11 @@ export function useStreamingCapture(
   const stateUnsubRef = useRef<(() => void) | null>(null);
   const errorUnsubRef = useRef<(() => void) | null>(null);
   const audioTapLevelUnsubRef = useRef<(() => void) | null>(null);
+  // Each channel updates independently and fires onLevel separately; without
+  // remembering the last value of the OTHER side, mic events (fire every
+  // ~10ms) keep stomping the system level back to 0 so its meter never moves.
+  const latestMicLevelRef = useRef(0);
+  const latestSysLevelRef = useRef(0);
 
   const cleanupMic = useCallback(() => {
     if (workletRef.current) {
@@ -168,7 +173,9 @@ export function useStreamingCapture(
             sumSq += n * n;
           }
           const rms = Math.sqrt(sumSq / view.length);
-          opts.onLevel(Math.min(1, rms * 6), 0);
+          const micLvl = Math.min(1, rms * 6);
+          latestMicLevelRef.current = micLvl;
+          opts.onLevel(micLvl, latestSysLevelRef.current);
         }
       };
       // Chromium needs the worklet to be connected through to the
@@ -241,7 +248,8 @@ export function useStreamingCapture(
 
     // 3. System audio level meter via existing AudioTee level event.
     audioTapLevelUnsubRef.current = window.quill.audioTap.onLevel((info) => {
-      if (opts.onLevel) opts.onLevel(0, info.level);
+      latestSysLevelRef.current = info.level;
+      if (opts.onLevel) opts.onLevel(latestMicLevelRef.current, info.level);
     });
 
     // 4. Open the Deepgram session BEFORE starting AudioTee — audio-tap.ts
@@ -295,6 +303,8 @@ export function useStreamingCapture(
     setHasMic(false);
     setHasSystem(false);
     setReconnectingChannels({ mic: false, system: false });
+    latestMicLevelRef.current = 0;
+    latestSysLevelRef.current = 0;
     setState('idle');
   }, [cleanupListeners, cleanupMic, state]);
 

@@ -102,9 +102,12 @@ interface DeepgramResultMessage {
 
 function buildUrl(language?: string, diarize?: boolean): string {
   let url = DG_URL;
-  if (language && language !== 'auto') {
-    url += `&language=${encodeURIComponent(language)}`;
-  }
+  // Deepgram Nova-3 defaults to English when no `language` param is sent —
+  // it does NOT auto-detect from silence. For our "Auto" setting we want
+  // true multilingual code-switching, which Nova-3 exposes as
+  // `language=multi` (covers en/es/fr/de/hi/ru/pt/ja/it/nl).
+  const resolved = !language || language === 'auto' ? 'multi' : language;
+  url += `&language=${encodeURIComponent(resolved)}`;
   if (diarize) {
     url += '&diarize=true';
   }
