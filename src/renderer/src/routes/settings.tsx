@@ -425,9 +425,10 @@ function TranscriptionCard() {
             </span>
           )}
           <div className="mt-1.5 text-sm text-ink-muted leading-relaxed max-w-prose">
-            Auto-detect handles English, German, Spanish, French, and most major
-            European languages well. Pin a specific language for noisy mixed-language
-            calls or unusual accents.
+            On Deepgram streaming, <em>Auto-detect</em> falls back to English
+            — pin your language explicitly (German, French, etc.) for
+            non-English meetings. On Whisper batch mode (no Deepgram key),
+            Auto-detect works natively.
           </div>
           <select
             value={language}

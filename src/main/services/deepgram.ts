@@ -102,12 +102,15 @@ interface DeepgramResultMessage {
 
 function buildUrl(language?: string, diarize?: boolean): string {
   let url = DG_URL;
-  // Deepgram Nova-3 defaults to English when no `language` param is sent —
-  // it does NOT auto-detect from silence. For our "Auto" setting we want
-  // true multilingual code-switching, which Nova-3 exposes as
-  // `language=multi` (covers en/es/fr/de/hi/ru/pt/ja/it/nl).
-  const resolved = !language || language === 'auto' ? 'multi' : language;
-  url += `&language=${encodeURIComponent(resolved)}`;
+  // Deepgram Nova-3 defaults to English when no `language` param is sent.
+  // We tried `language=multi` for true code-switching auto-detect but that
+  // broke transcription entirely with our current param combo
+  // (smart_format + punctuate + interim_results), so we're back to: Auto
+  // means English, users with German/etc. must pin their language in
+  // Settings → Transcription.
+  if (language && language !== 'auto') {
+    url += `&language=${encodeURIComponent(language)}`;
+  }
   if (diarize) {
     url += '&diarize=true';
   }
@@ -157,7 +160,11 @@ class DeepgramChannel {
 
   open(): void {
     if (this.closed) return;
-    const ws = wsFactory(buildUrl(this.language, this.diarize), {
+    const url = buildUrl(this.language, this.diarize);
+    console.log(
+      `[deepgram] ${this.speaker} opening: ${url.replace(/api_key=[^&]+/, 'api_key=***')}`,
+    );
+    const ws = wsFactory(url, {
       headers: { Authorization: `Token ${this.apiKey}` },
     });
     this.ws = ws;
@@ -165,6 +172,7 @@ class DeepgramChannel {
 
     ws.on('open', () => {
       if (this.closed) return;
+      console.log(`[deepgram] ${this.speaker} ws open`);
       if (wasReconnect) {
         // Replay buffered frames so transcription resumes from ~3s ago.
         for (const frame of this.buffer) {
@@ -236,18 +244,29 @@ class DeepgramChannel {
 
     ws.on('close', (code, reason) => {
       if (this.closed) return;
-      // Exhausted reconnect budget — surface terminal error.
-      if (this.reconnectAttempt >= MAX_RECONNECTS) {
+      const reasonStr = reason?.toString?.() ?? '';
+      console.warn(
+        `[deepgram] ${this.speaker} ws close code=${code} reason=${reasonStr || '(none)'} attempt=${this.reconnectAttempt}`,
+      );
+      // 1008 (policy violation) means our request was malformed — Deepgram
+      // rejected the params. Reconnecting won't fix it; surface the real
+      // reason immediately so we don't loop silently for 4 attempts. 1011
+      // (server/internal error) is treated as transient and still reconnects.
+      const fatalCode = code === 1008;
+      if (this.reconnectAttempt >= MAX_RECONNECTS || fatalCode) {
         this.closed = true;
         broadcast('deepgram:state', {
           speaker: this.speaker,
           state: 'closed',
           code,
-          reason: reason?.toString?.() ?? '',
+          reason: reasonStr,
         });
         broadcast('deepgram:error', {
           speaker: this.speaker,
-          message: `Deepgram disconnected after ${MAX_RECONNECTS} reconnect attempts`,
+          message: fatalCode
+            ? `Deepgram rejected the connection: ${reasonStr || `code ${code}`}`
+            : `Deepgram disconnected after ${MAX_RECONNECTS} reconnect attempts` +
+              (reasonStr ? ` — last reason: ${reasonStr}` : ''),
         });
         return;
       }
